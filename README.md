@@ -1,32 +1,42 @@
-# React + TypeScript + Vite
+# WhatsApp Web Clone
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A pixel-perfect WhatsApp Web clone built with **React + TypeScript + Vite + Tailwind CSS v4**.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- 🔐 **Authentication** — QR scan + phone number linking screen
+- 📱 **NavRail** — Chats, Status, Channels, Communities, Meta AI, Starred, Settings
+- 💬 **Chats** — Search, filter pills (All/Unread/Favorites/Groups), archived chats
+- 📊 **Status** — My Status, Recent updates, Add status (text/photo)
+- 📢 **Channels** — Follow/Following, Create Channel, Discover
+- 👥 **Communities** — Create Community flow
+- ⚙️ **Settings** — Profile, Account, Privacy, Chats (theme), Notifications, Shortcuts, Help
+- 🎙️ **Voice Notes** — Waveform bars, play/pause, speed 1x/1.5x/2x
+- 📊 **Polls** — Create poll with up to 12 options
+- 📞 **Calls** — Voice/video call modal with mute/end controls
+- 🔒 **App Lock** — Password protection modal
+- ⭐ **Starred Messages** — Bookmark important messages
+- 🔍 **Search** — Search within chats + global search
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **React 18** + **TypeScript**
+- **Vite 6** (build tool)
+- **Tailwind CSS v4**
+- **Lucide React** (icons)
+- **Web Audio API** (sound effects)
 
-## Expanding the Oxlint configuration
+## Getting Started
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Open [http://localhost:5173](http://localhost:5173)
+
+## Build
+
+```bash
+npm run build
+```
