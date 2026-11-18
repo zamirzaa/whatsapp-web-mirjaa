@@ -1,9 +1,9 @@
 import React from 'react';
 import { useWhatsApp } from '../../context/WhatsAppContext';
-import { Plus, MoreVertical } from 'lucide-react';
+import { Plus, MoreVertical, Trash2 } from 'lucide-react';
 
 export const StatusListView: React.FC = () => {
-  const { userStatuses, setViewingStatus, currentUser, setIsNewStatusModalOpen } = useWhatsApp();
+  const { userStatuses, setViewingStatus, currentUser, setIsNewStatusModalOpen, deleteStatus } = useWhatsApp();
 
   const myStatus = userStatuses.find(s => s.userId === 'me');
 
@@ -63,6 +63,20 @@ export const StatusListView: React.FC = () => {
                 : 'Click to add status update'}
             </p>
           </div>
+          {myStatus && myStatus.items.length > 0 && (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                if (myStatus.items[0]) {
+                  deleteStatus(myStatus.items[0].id);
+                }
+              }}
+              className="p-1.5 text-[#8696a0] hover:text-red-400 rounded-full hover:bg-white/5 transition-colors cursor-pointer"
+              title="Delete latest status"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Recent updates */}

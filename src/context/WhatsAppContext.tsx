@@ -21,15 +21,22 @@ import {
   INITIAL_CHANNELS,
 } from '../mock/initialData';
 import { sounds } from '../utils/audio';
+import { api, getAuthToken, setAuthToken, removeAuthToken } from '../services/api';
+import { getSocket, initSocket, disconnectSocket } from '../services/socket';
 
 interface WhatsAppContextType {
   isAuthenticated: boolean;
-  login: () => void;
+  login: (token?: string, userData?: any) => void;
   logout: () => void;
 
   theme: 'dark' | 'light';
   toggleTheme: () => void;
   setThemeMode: (mode: 'dark' | 'light') => void;
+
+  chatWallpaper: string;
+  setChatWallpaper: (wallpaper: string) => void;
+  chatDoodlesEnabled: boolean;
+  setChatDoodlesEnabled: (enabled: boolean) => void;
 
   currentUser: UserProfile;
   updateCurrentUser: (profile: Partial<UserProfile>) => void;
@@ -58,6 +65,7 @@ interface WhatsAppContextType {
     fileName?: string;
     fileSize?: string;
     audioDuration?: number;
+    isViewOnce?: boolean;
     poll?: {
       question: string;
       options: { id: string; text: string; votes: string[] }[];
@@ -65,6 +73,8 @@ interface WhatsAppContextType {
     };
     replyTo?: { id: string; senderName: string; text: string };
   }) => void;
+
+  openViewOnceMessage: (messageId: string) => void;
 
   toggleReaction: (messageId: string, emoji: string) => void;
   deleteMessage: (messageId: string) => void;
@@ -100,6 +110,7 @@ interface WhatsAppContextType {
 
   isTyping: boolean;
 
+  deleteStatus: (statusId: string) => void;
   // Multi-select chats
   selectedChatIds: string[];
   toggleSelectChat: (id: string) => void;
@@ -108,6 +119,12 @@ interface WhatsAppContextType {
   deleteSelectedChats: () => void;
   muteSelectedChats: () => void;
   markAllAsRead: () => void;
+
+  // Single chat actions
+  archiveChat: (chatId: string, isArchived: boolean) => void;
+  pinChat: (chatId: string, isPinned: boolean) => void;
+  muteChatSingle: (chatId: string, isMuted: boolean) => void;
+  clearChatMessages: (chatId: string) => void;
 
   // New Group creation
   selectedGroupMembers: string[];
@@ -136,19 +153,55 @@ interface WhatsAppContextType {
   isNewStatusModalOpen: boolean;
   setIsNewStatusModalOpen: (open: boolean) => void;
 
+  // Toast Notification
+  activeToast: {
+    id: string;
+    senderName: string;
+    senderAvatar: string;
+    chatId: string;
+    text: string;
+    timestamp: string;
+  } | null;
+  dismissToast: () => void;
+
   // Meta AI
   askMetaAI: () => void;
+
+  // Message Selection Mode (Screenshot 14)
+  isSelectingMessages: boolean;
+  setIsSelectingMessages: (val: boolean) => void;
+  selectedMessageIds: string[];
+  toggleSelectMessage: (id: string) => void;
+  clearSelectedMessages: () => void;
+  deleteSelectedMessages: () => void;
+  starSelectedMessages: () => void;
+
+  // Group Management & Actions
+  updateGroupInfo: (chatId: string, updates: { name?: string; avatar?: string; description?: string }) => void;
+  addMembersToGroup: (chatId: string, memberIds: string[]) => void;
+  removeGroupMember: (chatId: string, memberId: string) => void;
+  exitGroupAction: (chatId: string, deleteForMe?: boolean) => void;
+  toggleFavoriteChat: (chatId: string) => void;
 }
 
 const WhatsAppContext = createContext<WhatsAppContextType | undefined>(undefined);
 
 export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('wa_auth') === 'true';
+    return Boolean(getAuthToken()) || localStorage.getItem('wa_auth') === 'true';
   });
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('wa_theme') as 'dark' | 'light') || 'dark';
+  });
+
+  const [chatWallpaper, setChatWallpaper] = useState<string>(() => {
+    return localStorage.getItem('wa_wallpaper') || '#0b141a';
+  });
+
+  const [chatDoodlesEnabled, setChatDoodlesEnabled] = useState<boolean>(() => {
+    const val = localStorage.getItem('wa_doodles');
+    return val !== null ? val === 'true' : true;
   });
 
   const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
@@ -182,11 +235,25 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
 
+  // Message selection state (Screenshot 14)
+  const [isSelectingMessages, setIsSelectingMessages] = useState<boolean>(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+
   const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
   const [appLockEnabled, setAppLockEnabled] = useState<boolean>(false);
   const [showNotificationBanner, setShowNotificationBanner] = useState<boolean>(true);
   const [isThoughtModalOpen, setIsThoughtModalOpen] = useState(false);
   const [isNewStatusModalOpen, setIsNewStatusModalOpen] = useState(false);
+  const [activeToast, setActiveToast] = useState<{
+    id: string;
+    senderName: string;
+    senderAvatar: string;
+    chatId: string;
+    text: string;
+    timestamp: string;
+  } | null>(null);
+
+  const dismissToast = () => setActiveToast(null);
 
   const [isTyping, setIsTyping] = useState<boolean>(false);
 
@@ -199,6 +266,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     isVideoOff: false,
   });
 
+  // Apply theme to document element
   useEffect(() => {
     localStorage.setItem('wa_theme', theme);
     if (theme === 'dark') {
@@ -208,6 +276,241 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [theme]);
 
+  // Load initial backend data upon authentication
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Connect WebSocket
+    const socket = initSocket();
+
+    // Fetch user profile from API
+    api.getMe()
+      .then(user => {
+        if (user) {
+          setCurrentUser({
+            id: user.id,
+            name: user.name,
+            about: user.about,
+            avatar: user.avatar,
+            phone: user.phone,
+            username: user.username,
+            thought: user.thought || 'Share a thought',
+          });
+        }
+      })
+      .catch(() => {});
+
+    // Fetch Chats from API
+    api.getChats()
+      .then(serverChats => {
+        if (Array.isArray(serverChats) && serverChats.length > 0) {
+          setChats(serverChats);
+          // Sync group contacts from server chats
+          setContacts(prevContacts => {
+            const newGroupContacts = serverChats
+              .filter(sc => sc.isGroup)
+              .filter(sc => !prevContacts.some(pc => pc.id === sc.contactId || pc.id === sc.id))
+              .map(sc => ({
+                id: sc.contactId || sc.id,
+                name: sc.name || 'Group',
+                phoneNumber: '',
+                avatar: sc.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+                about: sc.about || 'WhatsApp Group',
+                isOnline: true,
+                isGroup: true,
+                groupMembers: sc.groupMembers || ['You'],
+              }));
+            return [...newGroupContacts, ...prevContacts];
+          });
+        }
+      })
+      .catch(() => {});
+
+    // Fetch Contacts from API
+    api.getContacts()
+      .then(serverContacts => {
+        if (Array.isArray(serverContacts) && serverContacts.length > 0) {
+          setContacts(serverContacts);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch Statuses from API
+    api.getStatuses()
+      .then(serverStatuses => {
+        if (Array.isArray(serverStatuses) && serverStatuses.length > 0) {
+          setUserStatuses(serverStatuses);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch Channels from API
+    api.getChannels()
+      .then(serverChannels => {
+        if (Array.isArray(serverChannels) && serverChannels.length > 0) {
+          setChannels(serverChannels);
+        }
+      })
+      .catch(() => {});
+
+    // WebSocket Listeners
+    socket.on('message:new', (data: { chatId: string; message: any }) => {
+      const incoming = data.message;
+      // Skip own messages - already added optimistically to avoid duplication
+      if (incoming.senderId === currentUser.id || incoming.senderId === 'me') return;
+
+      setMessages(prev => {
+        // When someone else replies, all our previous outgoing messages are read
+        const list = (prev[data.chatId] || []).map(m =>
+          m.isOutgoing ? { ...m, status: 'read' as const } : m
+        );
+        if (list.some(m => m.id === incoming.id)) return prev;
+        return {
+          ...prev,
+          [data.chatId]: [...list, incoming],
+        };
+      });
+
+      setChats(prev =>
+        prev.map(c => {
+          if (c.id === data.chatId) {
+            return {
+              ...c,
+              lastMessage: incoming,
+              unreadCount: activeChatId === data.chatId ? 0 : c.unreadCount + 1,
+            };
+          }
+          return c;
+        })
+      );
+
+      if (incoming.senderId !== 'me' && incoming.senderId !== currentUser.id) {
+        sounds.playMessageReceived();
+        if (activeChatId !== data.chatId) {
+          const senderContact = contacts.find(c => c.id === incoming.senderId);
+          setActiveToast({
+            id: incoming.id || `toast_${Date.now()}`,
+            senderName: incoming.senderName || senderContact?.name || 'WhatsApp Contact',
+            senderAvatar: senderContact?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            chatId: data.chatId,
+            text: incoming.text || (incoming.type === 'image' ? '📷 Photo' : 'New message'),
+            timestamp: incoming.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          });
+        }
+      }
+    });
+
+    socket.on('messages:read', (data: { chatId: string }) => {
+      setMessages(prev => {
+        const list = prev[data.chatId] || [];
+        return {
+          ...prev,
+          [data.chatId]: list.map(m => (m.isOutgoing ? { ...m, status: 'read' as const } : m)),
+        };
+      });
+      setChats(prev =>
+        prev.map(c => {
+          if (c.id === data.chatId && c.lastMessage?.isOutgoing) {
+            return {
+              ...c,
+              lastMessage: { ...c.lastMessage, status: 'read' as const },
+            };
+          }
+          return c;
+        })
+      );
+    });
+
+    socket.on('message:view_once_opened', (data: { chatId: string; messageId: string }) => {
+      setMessages(prev => {
+        const list = prev[data.chatId] || [];
+        return {
+          ...prev,
+          [data.chatId]: list.map(m =>
+            m.id === data.messageId ? { ...m, isViewOnceOpened: true } : m
+          ),
+        };
+      });
+    });
+
+    socket.on('message:deleted', (data: { chatId: string; messageId: string }) => {
+      setMessages(prev => {
+        const list = prev[data.chatId] || [];
+        return {
+          ...prev,
+          [data.chatId]: list.map(m =>
+            m.id === data.messageId ? { ...m, text: 'This message was deleted' } : m
+          ),
+        };
+      });
+    });
+
+    socket.on('conversation:typing', (data: { chatId: string; isTyping: boolean }) => {
+      if (activeChatId === data.chatId) {
+        setIsTyping(data.isTyping);
+      }
+    });
+
+    socket.on('user:online', (data: { userId: string }) => {
+      setContacts(prev =>
+        prev.map(c => (c.id === data.userId ? { ...c, isOnline: true } : c))
+      );
+    });
+
+    socket.on('user:offline', (data: { userId: string; lastSeen: string }) => {
+      setContacts(prev =>
+        prev.map(c => (c.id === data.userId ? { ...c, isOnline: false, lastSeen: data.lastSeen } : c))
+      );
+    });
+
+    socket.on('call:incoming', (data: any) => {
+      sounds.startRingtone();
+      setCallState({
+        isActive: true,
+        contact: {
+          id: data.caller.id,
+          name: data.caller.name,
+          phoneNumber: '',
+          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+          about: '',
+          isOnline: true,
+        },
+        type: data.type || 'audio',
+        status: 'ringing',
+        durationSeconds: 0,
+        isMuted: false,
+        isVideoOff: false,
+      });
+    });
+
+    return () => {
+      disconnectSocket();
+    };
+  }, [isAuthenticated, activeChatId, currentUser.id]);
+
+  // Load messages whenever activeChatId changes
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    // Load from backend
+    api.getMessages(activeChatId)
+      .then(serverMsgs => {
+        if (Array.isArray(serverMsgs)) {
+          setMessages(prev => ({
+            ...prev,
+            [activeChatId]: serverMsgs,
+          }));
+        }
+      })
+      .catch(() => {});
+
+    api.markAsRead(activeChatId).catch(() => {});
+
+    setChats(prev =>
+      prev.map(c => (c.id === activeChatId ? { ...c, unreadCount: 0 } : c))
+    );
+  }, [activeChatId]);
+
   const toggleTheme = () => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
   };
@@ -216,15 +519,40 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setTheme(mode);
   };
 
-  const login = () => {
+  const handleSetWallpaper = (wp: string) => {
+    setChatWallpaper(wp);
+    localStorage.setItem('wa_wallpaper', wp);
+  };
+
+  const handleSetDoodles = (enabled: boolean) => {
+    setChatDoodlesEnabled(enabled);
+    localStorage.setItem('wa_doodles', String(enabled));
+  };
+
+  const login = (token?: string, userData?: any) => {
+    if (token) {
+      setAuthToken(token);
+    }
+    if (userData) {
+      setCurrentUser(prev => ({
+        ...prev,
+        id: userData.id || prev.id,
+        name: userData.displayName || userData.name || prev.name,
+        phone: userData.phone || prev.phone,
+        avatar: userData.avatarUrl || userData.avatar || prev.avatar,
+        about: userData.about || prev.about,
+      }));
+    }
     setIsAuthenticated(true);
     localStorage.setItem('wa_auth', 'true');
   };
 
   const logout = () => {
+    removeAuthToken();
     setIsAuthenticated(false);
     localStorage.removeItem('wa_auth');
     setActiveChatId(null);
+    disconnectSocket();
   };
 
   const updateCurrentUser = (profile: Partial<UserProfile>) => {
@@ -233,6 +561,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.setItem('wa_user', JSON.stringify(updated));
       return updated;
     });
+    api.updateProfile(profile).catch(() => {});
   };
 
   const setUserThought = (thought: string) => {
@@ -243,20 +572,28 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!activeChatId) return undefined;
     const chat = chats.find(c => c.id === activeChatId);
     if (!chat) return undefined;
-    return contacts.find(c => c.id === chat.contactId);
+    const found = contacts.find(c => c.id === chat.contactId);
+    if (found) return found;
+
+    if ((chat as any).isGroup || (chat as any).name) {
+      return {
+        id: chat.contactId || chat.id,
+        name: (chat as any).name || 'Group',
+        phoneNumber: '',
+        avatar: (chat as any).avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+        about: (chat as any).about || 'WhatsApp Group',
+        isOnline: true,
+        isGroup: (chat as any).isGroup ?? true,
+        groupMembers: (chat as any).groupMembers || ['You'],
+      } as Contact;
+    }
+    return undefined;
   }, [activeChatId, chats, contacts]);
 
   const activeMessages = useMemo(() => {
     if (!activeChatId) return [];
     return messages[activeChatId] || [];
   }, [activeChatId, messages]);
-
-  useEffect(() => {
-    if (!activeChatId) return;
-    setChats(prev =>
-      prev.map(c => (c.id === activeChatId ? { ...c, unreadCount: 0 } : c))
-    );
-  }, [activeChatId]);
 
   useEffect(() => {
     let interval: number;
@@ -283,6 +620,14 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       isVideoOff: false,
     });
 
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('call:initiate', {
+        recipientId: contact.id,
+        type,
+      });
+    }
+
     setTimeout(() => {
       sounds.stopRingtone();
       setCallState(prev => {
@@ -298,6 +643,12 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ...prev,
       status: 'ended',
     }));
+
+    const socket = getSocket();
+    if (socket && callState.contact) {
+      socket.emit('call:end', { recipientId: callState.contact.id });
+    }
+
     setTimeout(() => {
       setCallState({
         isActive: false,
@@ -318,66 +669,6 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCallState(prev => ({ ...prev, isVideoOff: !prev.isVideoOff }));
   };
 
-  const triggerAutoReply = useCallback((chatId: string, contact: Contact, userText: string) => {
-    setIsTyping(true);
-    const delay = Math.min(Math.max(userText.length * 40, 1500), 2800);
-
-    setTimeout(() => {
-      setIsTyping(false);
-      let replyText = `Siap Mirza! Pesan diterima 👍`;
-      if (contact.id === 'c_meta_ai') {
-        const aiReplies = [
-          `Halo Mirza! Sebagai Meta AI, saya siap membantu kamu menulis pesan, menerjemahkan bahasa, atau menjelaskan konsep teknis apapun! 🤖✨`,
-          `Pertanyaan bagus! Untuk mengoptimalkan WhatsApp Web ini, semua komponen sudah menggunakan arsitektur modular dengan animasi halus dan audio sintesis.`,
-          `Ada yang bisa saya bantu lagi, Mirza? Saya bisa membantu membuat resep, ide konten, atau ringkasan materi!`,
-        ];
-        replyText = aiReplies[Math.floor(Math.random() * aiReplies.length)];
-      } else {
-        const responses = [
-          `Siap Mirza! Pesan diterima 👍`,
-          `Oke, noted ya! Nanti langsung ku follow-up.`,
-          `Wah keren banget fiturnya, mirip WhatsApp Web asli! 🔥`,
-          `Halo Mirza! Lagi santai nih, ada info apa lagi?`,
-          `Mantap, lancar jaya ya project-nya!`,
-          `Wkwkwk iya bener banget! 😆`,
-        ];
-        replyText = responses[Math.floor(Math.random() * responses.length)];
-      }
-
-      const replyMsg: Message = {
-        id: `reply_${Date.now()}`,
-        chatId,
-        senderId: contact.id,
-        text: replyText,
-        type: 'text',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        timestampRaw: Date.now(),
-        status: 'read',
-        isOutgoing: false,
-      };
-
-      setMessages(prev => {
-        const list = prev[chatId] || [];
-        return { ...prev, [chatId]: [...list, replyMsg] };
-      });
-
-      setChats(prev =>
-        prev.map(c => {
-          if (c.id === chatId) {
-            return {
-              ...c,
-              lastMessage: replyMsg,
-              unreadCount: activeChatId === chatId ? 0 : c.unreadCount + 1,
-            };
-          }
-          return c;
-        })
-      );
-
-      sounds.playMessageReceived();
-    }, delay);
-  }, [activeChatId]);
-
   const sendMessage = useCallback((payload: {
     text?: string;
     type?: MessageType;
@@ -385,6 +676,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fileName?: string;
     fileSize?: string;
     audioDuration?: number;
+    isViewOnce?: boolean;
     poll?: {
       question: string;
       options: { id: string; text: string; votes: string[] }[];
@@ -394,20 +686,23 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }) => {
     if (!activeChatId) return;
 
+    const optimisticId = `msg_${Date.now()}`;
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: optimisticId,
       chatId: activeChatId,
       senderId: 'me',
       text: payload.text,
       type: payload.type || 'text',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       timestampRaw: Date.now(),
-      status: 'sent',
+      status: 'delivered',
       isOutgoing: true,
       mediaUrl: payload.mediaUrl,
       fileName: payload.fileName,
       fileSize: payload.fileSize,
       audioDuration: payload.audioDuration,
+      isViewOnce: payload.isViewOnce,
+      isViewOnceOpened: false,
       poll: payload.poll,
       replyTo: payload.replyTo || (replyingMessage ? {
         id: replyingMessage.id,
@@ -419,6 +714,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     sounds.playMessageSent();
     setReplyingMessage(null);
 
+    // Optimistic UI update
     setMessages(prev => {
       const list = prev[activeChatId] || [];
       return { ...prev, [activeChatId]: [...list, newMsg] };
@@ -427,38 +723,71 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setChats(prev => {
       const chatIndex = prev.findIndex(c => c.id === activeChatId);
       if (chatIndex === -1) return prev;
-      const updatedChat = { ...prev[chatIndex], lastMessage: newMsg };
+      const target = { ...prev[chatIndex], lastMessage: newMsg };
       const rest = prev.filter(c => c.id !== activeChatId);
-      return [updatedChat, ...rest];
+      const combined = [target, ...rest];
+      return combined.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return (b.lastMessage?.timestampRaw || 0) - (a.lastMessage?.timestampRaw || 0);
+      });
     });
 
-    setTimeout(() => {
-      setMessages(prev => {
-        const list = prev[activeChatId] || [];
-        return {
-          ...prev,
-          [activeChatId]: list.map(m => (m.id === newMsg.id ? { ...m, status: 'delivered' } : m)),
-        };
-      });
-    }, 800);
+    // Send to backend API
+    api.sendMessage({
+      chatId: activeChatId,
+      text: payload.text,
+      type: payload.type,
+      mediaUrl: payload.mediaUrl,
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
+      audioDuration: payload.audioDuration,
+      isViewOnce: payload.isViewOnce,
+      replyToId: replyingMessage?.id,
+      poll: payload.poll,
+    })
+      .then(savedMsg => {
+        if (savedMsg?.id) {
+          setMessages(prev => {
+            const list = prev[activeChatId] || [];
+            return {
+              ...prev,
+              [activeChatId]: list.map(m => (m.id === optimisticId ? { ...m, id: savedMsg.id, status: 'delivered' } : m)),
+            };
+          });
 
-    setTimeout(() => {
-      setMessages(prev => {
-        const list = prev[activeChatId] || [];
-        return {
-          ...prev,
-          [activeChatId]: list.map(m => (m.id === newMsg.id ? { ...m, status: 'read' } : m)),
-        };
-      });
-    }, 1800);
+          setChats(prev =>
+            prev.map(c => {
+              if (c.id === activeChatId && c.lastMessage?.id === optimisticId) {
+                return {
+                  ...c,
+                  lastMessage: { ...c.lastMessage, id: savedMsg.id, status: 'delivered' },
+                };
+              }
+              return c;
+            })
+          );
+        }
+      })
+      .catch(() => {});
+  }, [activeChatId, replyingMessage]);
 
-    if (activeContact && !activeContact.isGroup && payload.text) {
-      triggerAutoReply(activeChatId, activeContact, payload.text);
-    }
-  }, [activeChatId, activeContact, replyingMessage, triggerAutoReply]);
+  const openViewOnceMessage = (messageId: string) => {
+    if (!activeChatId) return;
+    setMessages(prev => {
+      const list = prev[activeChatId] || [];
+      return {
+        ...prev,
+        [activeChatId]: list.map(m => (m.id === messageId ? { ...m, isViewOnceOpened: true } : m)),
+      };
+    });
+    api.openViewOnce(messageId).catch(() => {});
+  };
 
   const toggleReaction = (messageId: string, emoji: string) => {
     if (!activeChatId) return;
+
+    // Optimistic
     setMessages(prev => {
       const list = prev[activeChatId] || [];
       return {
@@ -480,6 +809,8 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }),
       };
     });
+
+    api.toggleReaction(messageId, emoji).catch(() => {});
   };
 
   const deleteMessage = (messageId: string) => {
@@ -491,6 +822,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         [activeChatId]: list.filter(m => m.id !== messageId),
       };
     });
+    api.deleteMessage(messageId).catch(() => {});
   };
 
   const toggleStarMessage = (messageId: string) => {
@@ -502,6 +834,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         [activeChatId]: list.map(m => (m.id === messageId ? { ...m, isStarred: !m.isStarred } : m)),
       };
     });
+    api.toggleStar(messageId).catch(() => {});
   };
 
   const votePoll = (messageId: string, optionId: string) => {
@@ -532,6 +865,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }),
       };
     });
+    api.votePoll(messageId, optionId).catch(() => {});
   };
 
   const markStatusSeen = (userId: string) => {
@@ -573,12 +907,34 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         ];
       }
     });
+
+    api.createStatus({
+      type: mediaUrl ? 'image' : 'text',
+      mediaUrl,
+      caption,
+      backgroundColor: bgColor || '#005c4b',
+    }).catch(() => {});
+  };
+
+  const deleteStatus = (statusId: string) => {
+    setUserStatuses(prev => {
+      const myIdx = prev.findIndex(s => s.userId === 'me');
+      if (myIdx === -1) return prev;
+      const updatedItems = prev[myIdx].items.filter(item => item.id !== statusId);
+      if (updatedItems.length === 0) {
+        return prev.filter(s => s.userId !== 'me');
+      }
+      const updated = [...prev];
+      updated[myIdx] = { ...updated[myIdx], items: updatedItems };
+      return updated;
+    });
   };
 
   const toggleFollowChannel = (id: string) => {
     setChannels(prev =>
       prev.map(ch => (ch.id === id ? { ...ch, isFollowing: !ch.isFollowing } : ch))
     );
+    api.followChannel(id).catch(() => {});
   };
 
   const createChannel = (name: string, description: string, avatar?: string) => {
@@ -591,6 +947,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       isFollowing: true,
     };
     setChannels(prev => [newCh, ...prev]);
+    api.createChannel({ name, description, avatar }).catch(() => {});
   };
 
   const toggleSelectChat = (id: string) => {
@@ -608,6 +965,9 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setChats(prev =>
       prev.map(c => (selectedChatIds.includes(c.id) ? { ...c, isArchived: true } : c))
     );
+    for (const id of selectedChatIds) {
+      api.archiveChat(id, true).catch(() => {});
+    }
     clearSelectedChats();
   };
 
@@ -623,6 +983,9 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setChats(prev =>
       prev.map(c => (selectedChatIds.includes(c.id) ? { ...c, isMuted: !c.isMuted } : c))
     );
+    for (const id of selectedChatIds) {
+      api.muteChat(id, true).catch(() => {});
+    }
     clearSelectedChats();
   };
 
@@ -630,7 +993,39 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setChats(prev => prev.map(c => ({ ...c, unreadCount: 0 })));
   };
 
-  // Group members selector
+  const archiveChat = (chatId: string, isArchived: boolean) => {
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, isArchived } : c));
+    api.archiveChat(chatId, isArchived).catch(() => {});
+  };
+
+  const pinChat = (chatId: string, isPinned: boolean) => {
+    setChats(prev => {
+      const updated = prev.map(c => (c.id === chatId ? { ...c, isPinned } : c));
+      return updated.sort((a, b) => {
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return (b.lastMessage?.timestampRaw || 0) - (a.lastMessage?.timestampRaw || 0);
+      });
+    });
+    api.pinChat(chatId, isPinned).catch(() => {});
+  };
+
+  const muteChatSingle = (chatId: string, isMuted: boolean) => {
+    setChats(prev => prev.map(c => c.id === chatId ? { ...c, isMuted } : c));
+    api.muteChat(chatId, isMuted).catch(() => {});
+  };
+
+  const clearChatMessages = (chatId: string) => {
+    setMessages(prev => ({
+      ...prev,
+      [chatId]: [],
+    }));
+    setChats(prev =>
+      prev.map(c => (c.id === chatId ? { ...c, lastMessage: undefined, unreadCount: 0 } : c))
+    );
+    api.clearChat(chatId).catch(() => {});
+  };
+
   const toggleGroupMember = (contactId: string) => {
     setSelectedGroupMembers(prev =>
       prev.includes(contactId) ? prev.filter(id => id !== contactId) : [...prev, contactId]
@@ -657,6 +1052,10 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const newGroupChat: Chat = {
       id: `chat_${groupId}`,
       contactId: groupId,
+      name,
+      avatar: icon || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+      isGroup: true,
+      groupMembers: newGroupContact.groupMembers,
       unreadCount: 0,
       lastMessage: {
         id: `m_init_${Date.now()}`,
@@ -678,12 +1077,33 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       [`chat_${groupId}`]: [newGroupChat.lastMessage!],
     }));
 
+    api.createChat({
+      type: 'group',
+      name,
+      avatar: icon,
+      memberIds: selectedGroupMembers,
+    }).then(res => {
+      if (res?.id) {
+        setContacts(prev => prev.map(c => c.id === groupId ? { ...c, id: res.id } : c));
+        setChats(prev => prev.map(c => c.id === `chat_${groupId}` ? { ...c, id: res.id, contactId: res.id } : c));
+        setMessages(prev => {
+          const msgs = prev[`chat_${groupId}`] || [];
+          return {
+            ...prev,
+            [res.id]: msgs.map(m => ({ ...m, chatId: res.id })),
+          };
+        });
+        setActiveChatId(res.id);
+      }
+    }).catch(() => {
+      setActiveChatId(`chat_${groupId}`);
+    });
+
     clearGroupMembers();
+    setActiveNavTab('chats');
     setSubView('none');
-    setActiveChatId(`chat_${groupId}`);
   };
 
-  // Add new single contact
   const addNewContact = (firstName: string, lastName: string, phone: string, username?: string) => {
     const fullName = `${firstName} ${lastName}`.trim();
     const contactId = `c_${Date.now()}`;
@@ -721,12 +1141,14 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       [chatId]: [newChat.lastMessage!],
     }));
 
+    api.addContact({ phone, username, aliasName: fullName }).catch(() => {});
+
     setSubView('none');
     setActiveChatId(chatId);
   };
 
   const askMetaAI = () => {
-    let metaContact = contacts.find(c => c.id === 'c_meta_ai');
+    let metaContact = contacts.find(c => c.id === 'c_meta_ai' || c.id === 'usr_meta_ai');
     if (!metaContact) {
       metaContact = {
         id: 'c_meta_ai',
@@ -743,12 +1165,12 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setChats(prev => [
         {
           id: metaChatId,
-          contactId: 'c_meta_ai',
+          contactId: metaContact!.id,
           unreadCount: 0,
           lastMessage: {
             id: 'm_meta_intro',
             chatId: metaChatId,
-            senderId: 'c_meta_ai',
+            senderId: metaContact!.id,
             text: 'Halo Mirza! Saya Meta AI. Ada yang bisa saya bantu hari ini? ✨',
             type: 'text',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -765,6 +1187,153 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setActiveChatId(metaChatId);
   };
 
+  // Message selection methods (Screenshot 14)
+  const toggleSelectMessage = (id: string) => {
+    setSelectedMessageIds(prev =>
+      prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]
+    );
+  };
+
+  const clearSelectedMessages = () => {
+    setSelectedMessageIds([]);
+    setIsSelectingMessages(false);
+  };
+
+  const deleteSelectedMessages = () => {
+    if (!activeChatId) return;
+    setMessages(prev => {
+      const list = prev[activeChatId] || [];
+      return {
+        ...prev,
+        [activeChatId]: list.filter(m => !selectedMessageIds.includes(m.id)),
+      };
+    });
+    for (const mId of selectedMessageIds) {
+      api.deleteMessage(mId).catch(() => {});
+    }
+    clearSelectedMessages();
+  };
+
+  const starSelectedMessages = () => {
+    if (!activeChatId) return;
+    setMessages(prev => {
+      const list = prev[activeChatId] || [];
+      return {
+        ...prev,
+        [activeChatId]: list.map(m =>
+          selectedMessageIds.includes(m.id) ? { ...m, isStarred: !m.isStarred } : m
+        ),
+      };
+    });
+    for (const mId of selectedMessageIds) {
+      api.toggleStar(mId).catch(() => {});
+    }
+    clearSelectedMessages();
+  };
+
+  // Group Management & Actions
+  const updateGroupInfo = (chatId: string, updates: { name?: string; avatar?: string; description?: string }) => {
+    setChats(prev =>
+      prev.map(c => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            name: updates.name !== undefined ? updates.name : c.name,
+            avatar: updates.avatar !== undefined ? updates.avatar : c.avatar,
+            about: updates.description !== undefined ? updates.description : c.about,
+          };
+        }
+        return c;
+      })
+    );
+    setContacts(prev =>
+      prev.map(c => {
+        if (c.id === chatId || (chats.find(ch => ch.id === chatId)?.contactId === c.id)) {
+          return {
+            ...c,
+            name: updates.name !== undefined ? updates.name : c.name,
+            avatar: updates.avatar !== undefined ? updates.avatar : c.avatar,
+            about: updates.description !== undefined ? updates.description : c.about,
+          };
+        }
+        return c;
+      })
+    );
+    api.updateChat(chatId, updates).catch(() => {});
+  };
+
+  const addMembersToGroup = (chatId: string, memberIds: string[]) => {
+    const memberNames = memberIds.map(id => contacts.find(c => c.id === id)?.name || id);
+    setChats(prev =>
+      prev.map(c => {
+        if (c.id === chatId) {
+          const current = c.groupMembers || ['You'];
+          const updated = Array.from(new Set([...current, ...memberNames]));
+          return { ...c, groupMembers: updated };
+        }
+        return c;
+      })
+    );
+    setContacts(prev =>
+      prev.map(c => {
+        if (c.id === chatId || (chats.find(ch => ch.id === chatId)?.contactId === c.id)) {
+          const current = c.groupMembers || ['You'];
+          const updated = Array.from(new Set([...current, ...memberNames]));
+          return { ...c, groupMembers: updated };
+        }
+        return c;
+      })
+    );
+    api.addChatMembers(chatId, memberIds).catch(() => {});
+  };
+
+  const removeGroupMember = (chatId: string, memberId: string) => {
+    const contact = contacts.find(c => c.id === memberId);
+    const memberName = contact?.name || memberId;
+    setChats(prev =>
+      prev.map(c => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            groupMembers: (c.groupMembers || []).filter(m => m !== memberName && m !== memberId),
+          };
+        }
+        return c;
+      })
+    );
+    api.removeChatMember(chatId, memberId).catch(() => {});
+  };
+
+  const exitGroupAction = (chatId: string, deleteForMe = false) => {
+    if (deleteForMe) {
+      setChats(prev => prev.filter(c => c.id !== chatId));
+      setContacts(prev => prev.filter(c => c.id !== chatId));
+    } else {
+      setChats(prev =>
+        prev.map(c => (c.id === chatId ? { ...c, groupMembers: (c.groupMembers || []).filter(m => m !== 'You') } : c))
+      );
+    }
+    if (activeChatId === chatId) {
+      setActiveChatId(null);
+      setActiveRightDrawer('none');
+    }
+    api.removeChatMember(chatId, 'me').catch(() => {});
+  };
+
+  const toggleFavoriteChat = (chatId: string) => {
+    let nextFav = false;
+    setChats(prev =>
+      prev.map(c => {
+        if (c.id === chatId) {
+          nextFav = !c.isFavorite;
+          return { ...c, isFavorite: nextFav };
+        }
+        return c;
+      })
+    );
+    api.toggleFavoriteChat(chatId, nextFav).catch(() => {});
+  };
+
   return (
     <WhatsAppContext.Provider
       value={{
@@ -774,6 +1343,10 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         theme,
         toggleTheme,
         setThemeMode,
+        chatWallpaper,
+        setChatWallpaper: handleSetWallpaper,
+        chatDoodlesEnabled,
+        setChatDoodlesEnabled: handleSetDoodles,
         currentUser,
         updateCurrentUser,
         setUserThought,
@@ -790,6 +1363,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         activeContact,
         activeMessages,
         sendMessage,
+        openViewOnceMessage,
         toggleReaction,
         deleteMessage,
         toggleStarMessage,
@@ -805,6 +1379,7 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setViewingStatus,
         markStatusSeen,
         addNewStatus,
+        deleteStatus,
         channels,
         activeChannel,
         setActiveChannel,
@@ -823,6 +1398,10 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         deleteSelectedChats,
         muteSelectedChats,
         markAllAsRead,
+        archiveChat,
+        pinChat,
+        muteChatSingle,
+        clearChatMessages,
         selectedGroupMembers,
         toggleGroupMember,
         clearGroupMembers,
@@ -838,7 +1417,21 @@ export const WhatsAppProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setIsThoughtModalOpen,
         isNewStatusModalOpen,
         setIsNewStatusModalOpen,
+        activeToast,
+        dismissToast,
         askMetaAI,
+        isSelectingMessages,
+        setIsSelectingMessages,
+        selectedMessageIds,
+        toggleSelectMessage,
+        clearSelectedMessages,
+        deleteSelectedMessages,
+        starSelectedMessages,
+        updateGroupInfo,
+        addMembersToGroup,
+        removeGroupMember,
+        exitGroupAction,
+        toggleFavoriteChat,
       }}
     >
       {children}

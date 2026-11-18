@@ -12,9 +12,11 @@ import { PollModal } from './components/modals/PollModal';
 import { AppLockModal } from './components/modals/AppLockModal';
 import { ThoughtModal } from './components/modals/ThoughtModal';
 import { NewStatusModal } from './components/modals/NewStatusModal';
+import { StatusViewerModal } from './components/modals/StatusViewerModal';
+import { ChatNotificationToast } from './components/chat/ChatNotificationToast';
 
 const WhatsAppMain: React.FC = () => {
-  const { isAuthenticated, activeRightDrawer } = useWhatsApp();
+  const { isAuthenticated, activeRightDrawer, activeToast, dismissToast, setActiveChatId } = useWhatsApp();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
 
@@ -23,7 +25,7 @@ const WhatsAppMain: React.FC = () => {
   }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#111b21] flex select-none">
+    <div className="relative w-screen h-screen overflow-hidden bg-[#f0f2f5] dark:bg-[#111b21] flex select-none">
       {/* 1. Far Left Navigation Rail (60px) */}
       <NavRail />
 
@@ -45,6 +47,7 @@ const WhatsAppMain: React.FC = () => {
       <AppLockModal />
       <ThoughtModal />
       <NewStatusModal />
+      <StatusViewerModal />
       <MediaViewerModal
         imageUrl={selectedImage}
         onClose={() => setSelectedImage(null)}
@@ -52,6 +55,16 @@ const WhatsAppMain: React.FC = () => {
       <PollModal
         isOpen={isPollModalOpen}
         onClose={() => setIsPollModalOpen(false)}
+      />
+
+      {/* Bottom Right WhatsApp Notification Toast */}
+      <ChatNotificationToast
+        notification={activeToast}
+        onClose={dismissToast}
+        onClick={chatId => {
+          setActiveChatId(chatId);
+          dismissToast();
+        }}
       />
     </div>
   );

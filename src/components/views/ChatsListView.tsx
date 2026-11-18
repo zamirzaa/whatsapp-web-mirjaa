@@ -44,35 +44,55 @@ export const ChatsListView: React.FC = () => {
   }).length;
 
   const filteredChats = activeChats.filter(chat => {
-    const contact = contacts.find(c => c.id === chat.contactId);
+    const contact = contacts.find(c => c.id === chat.contactId) || (
+      (chat as any).isGroup || (chat as any).name ? {
+        id: chat.contactId || chat.id,
+        name: (chat as any).name || 'Group',
+        phoneNumber: '',
+        avatar: (chat as any).avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+        about: (chat as any).about || 'WhatsApp Group',
+        isOnline: true,
+        isGroup: true,
+        groupMembers: (chat as any).groupMembers || ['You'],
+      } : null
+    );
     if (!contact) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchName = contact.name.toLowerCase().includes(q);
+      const matchName = contact.name.toLowerCase().includes(q) || ((chat as any).name && (chat as any).name.toLowerCase().includes(q));
       const matchText = chat.lastMessage?.text?.toLowerCase().includes(q);
       if (!matchName && !matchText) return false;
     }
 
     if (activeFilter === 'unread' && chat.unreadCount === 0) return false;
-    if (activeFilter === 'groups' && !contact.isGroup) return false;
+    if (activeFilter === 'groups' && !contact.isGroup && !(chat as any).isGroup) return false;
     if (activeFilter === 'favorites' && !chat.isFavorite) return false;
 
     return true;
+  }).sort((a, b) => {
+    // 1. Pinned chats first
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+
+    // 2. Most recent message first
+    const timeA = a.lastMessage?.timestampRaw || 0;
+    const timeB = b.lastMessage?.timestampRaw || 0;
+    return timeB - timeA;
   });
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#111b21] select-none overflow-hidden">
+    <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#111b21] select-none overflow-hidden transition-colors">
       {/* Top Header */}
       <div className="h-[60px] px-4 flex items-center justify-between shrink-0">
-        <h1 className="text-xl font-bold text-[#e9edef]">WhatsApp</h1>
+        <h1 className="text-xl font-bold text-[#111b21] dark:text-[#e9edef]">WhatsApp</h1>
 
-        <div className="flex items-center space-x-3 text-[#aebac1]">
+        <div className="flex items-center space-x-3 text-[#54656f] dark:text-[#aebac1]">
           {/* Dropdown Menu */}
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-2 hover:bg-[#202c33] rounded-full transition-colors cursor-pointer"
+              className="p-2 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] rounded-full transition-colors cursor-pointer"
               title="Menu"
             >
               <MoreVertical className="w-5 h-5" />
@@ -81,48 +101,48 @@ export const ChatsListView: React.FC = () => {
             {showMenu && (
               <div
                 onClick={() => setShowMenu(false)}
-                className="absolute right-0 top-11 z-50 bg-[#233138] rounded-xl shadow-2xl py-2 w-52 border border-[#313d45] text-sm text-[#d1d7db]"
+                className="absolute right-0 top-11 z-50 bg-white dark:bg-[#233138] rounded-xl shadow-2xl py-2 w-52 border border-[#e9edef] dark:border-[#313d45] text-sm text-[#111b21] dark:text-[#d1d7db]"
               >
                 <div
                   onClick={() => setSubView('new-group')}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
                 >
-                  <Users className="w-4 h-4 text-[#aebac1]" />
+                  <Users className="w-4 h-4 text-[#54656f] dark:text-[#aebac1]" />
                   <span>New group</span>
                 </div>
                 <div
                   onClick={() => setSubView('starred')}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
                 >
-                  <Star className="w-4 h-4 text-[#aebac1]" />
+                  <Star className="w-4 h-4 text-[#54656f] dark:text-[#aebac1]" />
                   <span>Starred messages</span>
                 </div>
                 <div
                   onClick={() => setSubView('select-chats')}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
                 >
-                  <CheckSquare className="w-4 h-4 text-[#aebac1]" />
+                  <CheckSquare className="w-4 h-4 text-[#54656f] dark:text-[#aebac1]" />
                   <span>Select chats</span>
                 </div>
                 <div
                   onClick={() => {
                     markAllAsRead();
                   }}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
                 >
-                  <MailCheck className="w-4 h-4 text-[#aebac1]" />
+                  <MailCheck className="w-4 h-4 text-[#54656f] dark:text-[#aebac1]" />
                   <span>Mark all as read</span>
                 </div>
                 <div
                   onClick={() => setSubView('app-lock')}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3"
                 >
-                  <Lock className="w-4 h-4 text-[#aebac1]" />
+                  <Lock className="w-4 h-4 text-[#54656f] dark:text-[#aebac1]" />
                   <span>App lock</span>
                 </div>
                 <div
                   onClick={logout}
-                  className="px-4 py-2.5 hover:bg-[#182229] cursor-pointer flex items-center space-x-3 text-red-400 border-t border-[#313d45] mt-1"
+                  className="px-4 py-2.5 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer flex items-center space-x-3 text-red-500 border-t border-[#e9edef] dark:border-[#313d45] mt-1"
                 >
                   <LogOut className="w-4 h-4" />
                   <span>Log out</span>
@@ -144,19 +164,19 @@ export const ChatsListView: React.FC = () => {
 
       {/* Search Input Box */}
       <div className="px-3 pb-2 shrink-0">
-        <div className="flex items-center bg-[#202c33] rounded-lg px-3 py-1.5 border border-transparent focus-within:border-[#00a884]">
-          <Search className="w-4 h-4 text-[#8696a0] mr-3 shrink-0" />
+        <div className="flex items-center bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 border border-transparent focus-within:border-[#00a884]">
+          <Search className="w-4 h-4 text-[#54656f] dark:text-[#8696a0] mr-3 shrink-0" />
           <input
             type="text"
             placeholder="Search or start a new chat"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="bg-transparent flex-1 text-[#e9edef] placeholder-[#8696a0] text-sm outline-none"
+            className="bg-transparent flex-1 text-[#111b21] dark:text-[#e9edef] placeholder-[#8696a0] text-sm outline-none"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="text-[#8696a0] hover:text-white p-0.5 cursor-pointer"
+              className="text-[#8696a0] hover:text-[#111b21] dark:hover:text-white p-0.5 cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -170,8 +190,8 @@ export const ChatsListView: React.FC = () => {
           onClick={() => setActiveFilter('all')}
           className={`px-3 py-1 rounded-full font-medium transition-colors cursor-pointer shrink-0 ${
             activeFilter === 'all'
-              ? 'bg-[#103629] text-[#00a884] border border-[#00a884]/40'
-              : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]'
+              ? 'bg-[#e7fce3] text-[#008069] dark:bg-[#103629] dark:text-[#00a884] border border-[#00a884]/40'
+              : 'bg-[#f0f2f5] text-[#54656f] dark:bg-[#202c33] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]'
           }`}
         >
           All
@@ -181,8 +201,8 @@ export const ChatsListView: React.FC = () => {
           onClick={() => setActiveFilter('unread')}
           className={`px-3 py-1 rounded-full font-medium transition-colors cursor-pointer shrink-0 ${
             activeFilter === 'unread'
-              ? 'bg-[#103629] text-[#00a884] border border-[#00a884]/40'
-              : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]'
+              ? 'bg-[#e7fce3] text-[#008069] dark:bg-[#103629] dark:text-[#00a884] border border-[#00a884]/40'
+              : 'bg-[#f0f2f5] text-[#54656f] dark:bg-[#202c33] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]'
           }`}
         >
           Unread {unreadCount > 0 ? unreadCount : ''}
@@ -192,8 +212,8 @@ export const ChatsListView: React.FC = () => {
           onClick={() => setActiveFilter('favorites')}
           className={`px-3 py-1 rounded-full font-medium transition-colors cursor-pointer shrink-0 ${
             activeFilter === 'favorites'
-              ? 'bg-[#103629] text-[#00a884] border border-[#00a884]/40'
-              : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]'
+              ? 'bg-[#e7fce3] text-[#008069] dark:bg-[#103629] dark:text-[#00a884] border border-[#00a884]/40'
+              : 'bg-[#f0f2f5] text-[#54656f] dark:bg-[#202c33] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]'
           }`}
         >
           Favorites
@@ -203,8 +223,8 @@ export const ChatsListView: React.FC = () => {
           onClick={() => setActiveFilter('groups')}
           className={`px-3 py-1 rounded-full font-medium transition-colors cursor-pointer shrink-0 ${
             activeFilter === 'groups'
-              ? 'bg-[#103629] text-[#00a884] border border-[#00a884]/40'
-              : 'bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]'
+              ? 'bg-[#e7fce3] text-[#008069] dark:bg-[#103629] dark:text-[#00a884] border border-[#00a884]/40'
+              : 'bg-[#f0f2f5] text-[#54656f] dark:bg-[#202c33] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef]'
           }`}
         >
           Groups {groupCount > 0 ? groupCount : ''}
@@ -212,12 +232,11 @@ export const ChatsListView: React.FC = () => {
 
         <button
           onClick={() => {
-            // cycle or add filter
             if (activeFilter === 'all') setActiveFilter('unread');
             else if (activeFilter === 'unread') setActiveFilter('groups');
             else setActiveFilter('all');
           }}
-          className="p-1 rounded-full bg-[#202c33] text-[#8696a0] hover:text-[#e9edef] transition-colors cursor-pointer shrink-0"
+          className="p-1 rounded-full bg-[#f0f2f5] dark:bg-[#202c33] text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] transition-colors cursor-pointer shrink-0"
           title="Toggle filters"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -226,19 +245,19 @@ export const ChatsListView: React.FC = () => {
 
       {/* Message and call notifications are off Banner */}
       {showNotificationBanner && (
-        <div className="mx-3 mb-2 bg-[#103629] border border-[#00a884]/30 rounded-xl p-3 flex items-center justify-between text-xs shrink-0">
-          <div className="flex items-center space-x-3 text-[#e9edef]">
+        <div className="mx-3 mb-2 bg-[#e7fce3] dark:bg-[#103629] border border-[#00a884]/30 rounded-xl p-3 flex items-center justify-between text-xs shrink-0">
+          <div className="flex items-center space-x-3 text-[#111b21] dark:text-[#e9edef]">
             <div className="w-8 h-8 rounded-full bg-[#00a884]/20 flex items-center justify-center text-[#00a884] shrink-0">
               <VolumeX className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-medium text-[#e9edef]">Message and call notifications are off.</p>
+              <p className="font-medium text-[#111b21] dark:text-[#e9edef]">Message and call notifications are off.</p>
               <button
                 onClick={() => {
                   setShowNotificationBanner(false);
                   setSubView('settings-notifications');
                 }}
-                className="text-[#00a884] hover:underline font-semibold cursor-pointer"
+                className="text-[#008069] dark:text-[#00a884] hover:underline font-semibold cursor-pointer"
               >
                 Turn on
               </button>
@@ -246,7 +265,7 @@ export const ChatsListView: React.FC = () => {
           </div>
           <button
             onClick={() => setShowNotificationBanner(false)}
-            className="text-[#8696a0] hover:text-white p-1 cursor-pointer"
+            className="text-[#8696a0] hover:text-[#111b21] dark:hover:text-white p-1 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -256,11 +275,11 @@ export const ChatsListView: React.FC = () => {
       {/* Archived Chats Row */}
       <div
         onClick={() => setSubView('archived')}
-        className="px-4 py-3 flex items-center justify-between hover:bg-[#202c33] cursor-pointer transition-colors border-b border-[#222d34] shrink-0"
+        className="px-4 py-3 flex items-center justify-between hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] cursor-pointer transition-colors border-b border-[#e9edef] dark:border-[#222d34] shrink-0"
       >
         <div className="flex items-center space-x-4">
           <Archive className="w-5 h-5 text-[#00a884]" />
-          <span className="text-base text-[#e9edef]">Archived</span>
+          <span className="text-base text-[#111b21] dark:text-[#e9edef]">Archived</span>
         </div>
         <span className="text-xs text-[#00a884] font-semibold">{archivedCount}</span>
       </div>
@@ -268,8 +287,16 @@ export const ChatsListView: React.FC = () => {
       {/* Chat List Scrollable */}
       <div className="flex-1 overflow-y-auto">
         {filteredChats.map(chat => {
-          const contact = contacts.find(c => c.id === chat.contactId);
-          if (!contact) return null;
+          const contact = contacts.find(c => c.id === chat.contactId) || {
+            id: chat.contactId || chat.id,
+            name: (chat as any).name || 'Group',
+            phoneNumber: '',
+            avatar: (chat as any).avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+            about: (chat as any).about || 'WhatsApp Group',
+            isOnline: true,
+            isGroup: (chat as any).isGroup ?? true,
+            groupMembers: (chat as any).groupMembers || ['You'],
+          };
           return (
             <ChatListItem
               key={chat.id}

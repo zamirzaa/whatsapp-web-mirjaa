@@ -41,6 +41,8 @@ export interface Message {
   };
   reactions?: { [emoji: string]: Reaction };
   isStarred?: boolean;
+  isViewOnce?: boolean;
+  isViewOnceOpened?: boolean;
 }
 
 export interface Contact {
@@ -68,6 +70,11 @@ export interface Chat {
   isFavorite?: boolean;
   draft?: string;
   lastMessage?: Message;
+  name?: string;
+  avatar?: string;
+  isGroup?: boolean;
+  groupMembers?: string[];
+  about?: string;
 }
 
 export interface ChannelItem {
@@ -115,7 +122,7 @@ export interface UserProfile {
   thought?: string;
 }
 
-export type NavTab = 'chats' | 'status' | 'channels' | 'communities' | 'meta-ai' | 'starred' | 'settings';
+export type NavTab = 'chats' | 'status' | 'channels' | 'communities' | 'meta-ai' | 'starred' | 'settings' | 'media';
 
 export type SubView =
   | 'none'
@@ -126,12 +133,14 @@ export type SubView =
   | 'new-contact'
   | 'new-community'
   | 'starred'
+  | 'all-media'
   | 'app-lock'
   | 'select-chats'
   | 'settings-profile'
   | 'settings-account'
   | 'settings-privacy'
   | 'settings-chats'
+  | 'settings-wallpaper'
   | 'settings-notifications'
   | 'settings-keyboard'
   | 'settings-help';

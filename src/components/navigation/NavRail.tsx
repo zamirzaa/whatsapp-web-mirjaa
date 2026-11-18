@@ -7,6 +7,7 @@ import {
   Users,
   Star,
   User,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { NavTab } from '../../types/whatsapp';
 
@@ -27,7 +28,7 @@ export const NavRail: React.FC = () => {
   };
 
   return (
-    <div className="w-[60px] h-full bg-[#111b21] border-r border-[#222d34] flex flex-col justify-between items-center py-3 select-none shrink-0 z-30">
+    <div className="w-[60px] h-full bg-[#f0f2f5] dark:bg-[#111b21] border-r border-[#e9edef] dark:border-[#222d34] flex flex-col justify-between items-center py-3 select-none shrink-0 z-30 transition-colors">
       {/* Top Main Navigation Tabs */}
       <div className="flex flex-col items-center space-y-2 w-full">
         {/* Chats Tab */}
@@ -35,14 +36,14 @@ export const NavRail: React.FC = () => {
           onClick={() => handleTabClick('chats')}
           className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             activeNavTab === 'chats'
-              ? 'bg-[#374248] text-white'
-              : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33]'
+              ? 'bg-[#00a884]/20 text-[#00a884] dark:bg-[#374248] dark:text-white'
+              : 'text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33]'
           }`}
           title="Chats"
         >
           <MessageSquare className="w-5 h-5 fill-current" />
           {unreadChatsCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#00a884] text-[#111b21] font-bold text-[10px] flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#00a884] text-white font-bold text-[10px] flex items-center justify-center">
               {unreadChatsCount}
             </span>
           )}
@@ -53,8 +54,8 @@ export const NavRail: React.FC = () => {
           onClick={() => handleTabClick('status')}
           className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             activeNavTab === 'status'
-              ? 'bg-[#374248] text-white'
-              : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33]'
+              ? 'bg-[#00a884]/20 text-[#00a884] dark:bg-[#374248] dark:text-white'
+              : 'text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33]'
           }`}
           title="Status"
         >
@@ -66,8 +67,8 @@ export const NavRail: React.FC = () => {
           onClick={() => handleTabClick('channels')}
           className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             activeNavTab === 'channels'
-              ? 'bg-[#374248] text-white'
-              : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33]'
+              ? 'bg-[#00a884]/20 text-[#00a884] dark:bg-[#374248] dark:text-white'
+              : 'text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33]'
           }`}
           title="Channels"
         >
@@ -79,8 +80,8 @@ export const NavRail: React.FC = () => {
           onClick={() => handleTabClick('communities')}
           className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
             activeNavTab === 'communities'
-              ? 'bg-[#374248] text-white'
-              : 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33]'
+              ? 'bg-[#00a884]/20 text-[#00a884] dark:bg-[#374248] dark:text-white'
+              : 'text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33]'
           }`}
           title="Communities"
         >
@@ -95,7 +96,7 @@ export const NavRail: React.FC = () => {
         >
           {/* Authentic Meta AI colorful iridescent spiral ring */}
           <div className="w-6 h-6 rounded-full p-[2px] bg-gradient-to-tr from-[#9333ea] via-[#ec4899] to-[#3b82f6] flex items-center justify-center animate-spin-slow">
-            <div className="w-full h-full bg-[#111b21] rounded-full flex items-center justify-center">
+            <div className="w-full h-full bg-[#f0f2f5] dark:bg-[#111b21] rounded-full flex items-center justify-center">
               <div className="w-2 h-2 rounded-full bg-gradient-to-r from-[#a855f7] to-[#ec4899]" />
             </div>
           </div>
@@ -110,10 +111,22 @@ export const NavRail: React.FC = () => {
             setActiveNavTab('chats');
             setSubView('starred');
           }}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-[#8696a0] hover:text-[#e9edef] hover:bg-[#202c33] transition-colors cursor-pointer"
+          className="w-10 h-10 rounded-full flex items-center justify-center text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33] transition-colors cursor-pointer"
           title="Starred messages"
         >
           <Star className="w-5 h-5" />
+        </button>
+
+        {/* All Media from all chats */}
+        <button
+          onClick={() => {
+            setActiveNavTab('chats');
+            setSubView('all-media');
+          }}
+          className="w-10 h-10 rounded-full flex items-center justify-center text-[#54656f] dark:text-[#8696a0] hover:text-[#111b21] dark:hover:text-[#e9edef] hover:bg-black/5 dark:hover:bg-[#202c33] transition-colors cursor-pointer"
+          title="Media from all chats"
+        >
+          <ImageIcon className="w-5 h-5" />
         </button>
 
         {/* Settings / Profile Avatar */}

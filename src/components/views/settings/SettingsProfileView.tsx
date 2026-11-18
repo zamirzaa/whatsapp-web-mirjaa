@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useWhatsApp } from '../../../context/WhatsAppContext';
-import { ArrowLeft, Check, Pencil, Camera } from 'lucide-react';
+import { ArrowLeft, Check, Pencil, Camera, Loader2 } from 'lucide-react';
+import { api } from '../../../services/api';
 
 export const SettingsProfileView: React.FC = () => {
   const { currentUser, updateCurrentUser, setSubView } = useWhatsApp();
@@ -10,6 +11,8 @@ export const SettingsProfileView: React.FC = () => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingAbout, setIsEditingAbout] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const saveName = () => {
     if (name.trim()) {
@@ -32,6 +35,42 @@ export const SettingsProfileView: React.FC = () => {
     }
   };
 
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file.');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image too large. Max 5MB.');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+
+    try {
+      const result = await api.uploadFile(file);
+      updateCurrentUser({ avatar: result.url });
+    } catch {
+      // Fallback: create local object URL for preview
+      const localUrl = URL.createObjectURL(file);
+      updateCurrentUser({ avatar: localUrl });
+    } finally {
+      setIsUploadingAvatar(false);
+      // Reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#111b21] select-none overflow-hidden animate-in slide-in-from-left duration-150">
       {/* Header */}
@@ -49,20 +88,41 @@ export const SettingsProfileView: React.FC = () => {
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
         {/* Avatar */}
         <div className="flex justify-center">
-          <div className="relative group cursor-pointer">
+          <div
+            className="relative group cursor-pointer"
+            onClick={handleAvatarClick}
+          >
             <img
               src={currentUser.avatar}
               alt={currentUser.name}
               className="w-40 h-40 rounded-full object-cover shadow-lg border-2 border-[#202c33]"
             />
             <div className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition-opacity">
-              <Camera className="w-6 h-6 mb-1 text-[#00a884]" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-center px-4">
-                Change Profile Photo
-              </span>
+              {isUploadingAvatar ? (
+                <Loader2 className="w-8 h-8 text-[#00a884] animate-spin" />
+              ) : (
+                <>
+                  <Camera className="w-6 h-6 mb-1 text-[#00a884]" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-center px-4">
+                    Change Profile Photo
+                  </span>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
         </div>
+
+        {/* Upload hint */}
+        <p className="text-center text-xs text-[#8696a0]">Click on photo to change</p>
 
         {/* Your Name */}
         <div className="space-y-1 bg-[#111b21]">
